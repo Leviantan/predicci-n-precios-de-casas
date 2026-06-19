@@ -2,7 +2,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
-import matplotlib.pyplot as plt
+
+# Intentar importar matplotlib sin romper la app
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_OK = True
+except ModuleNotFoundError:
+    MATPLOTLIB_OK = False
 
 # =============================
 # CONFIGURACIÓN GENERAL
@@ -28,7 +34,7 @@ def cargar_modelo():
 modelo = cargar_modelo()
 
 # =============================
-# CARGAR DATASET (para gráficas)
+# CARGAR DATASET
 # =============================
 @st.cache_data
 def cargar_data():
@@ -41,7 +47,7 @@ def cargar_data():
 df = cargar_data()
 
 # =============================
-# SIDEBAR - INPUTS
+# SIDEBAR
 # =============================
 st.sidebar.header("Variables de Entrada")
 
@@ -78,7 +84,7 @@ proximidad_oceano = st.sidebar.selectbox(
 )
 
 # =============================
-# PREPARAR INPUT
+# INPUT DATA
 # =============================
 input_data = pd.DataFrame({
     "longitud": [longitud],
@@ -95,7 +101,7 @@ input_data = pd.DataFrame({
 # =============================
 # PREDICCIÓN
 # =============================
-col1, col2 = st.columns([1, 1])
+col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Valores Seleccionados")
@@ -105,44 +111,48 @@ with col2:
     st.subheader("Predicción")
 
     if st.button("Predecir Precio"):
-        prediccion = modelo.predict(input_data)[0]
+        try:
+            prediccion = modelo.predict(input_data)[0]
 
-        st.success(f"Precio estimado: ${prediccion:,.2f}")
+            st.success(f"Precio estimado: ${prediccion:,.2f}")
+            st.metric("Valor estimado", f"${prediccion:,.0f}")
 
-        st.metric(
-            label="Valor estimado",
-            value=f"${prediccion:,.0f}"
-        )
+        except Exception as e:
+            st.error(f"Error al predecir: {e}")
 
 # =============================
 # GRÁFICAS
 # =============================
 st.markdown("---")
-st.subheader("Visualización de Variables")
+st.subheader("Visualización")
 
-if df is not None:
+if not MATPLOTLIB_OK:
+    st.warning("Matplotlib no está instalado. Instala la libría para ver gráficas.")
 
+elif df is not None:
     col3, col4 = st.columns(2)
 
     with col3:
-        st.write("Relación ingreso vs precio")
-        fig, ax = plt.subplots()
-        ax.scatter(
-            df["median_income"],
-            df["median_house_value"],
-            alpha=0.3
-        )
-        ax.set_xlabel("Ingreso Mediano")
-        ax.set_ylabel("Precio Casa")
-        st.pyplot(fig)
+        if "median_income" in df.columns and "median_house_value" in df.columns:
+            st.write("Ingreso vs Precio")
+            fig, ax = plt.subplots()
+            ax.scatter(
+                df["median_income"],
+                df["median_house_value"],
+                alpha=0.3
+            )
+            ax.set_xlabel("Ingreso")
+            ax.set_ylabel("Precio")
+            st.pyplot(fig)
 
     with col4:
-        st.write("Distribución del Precio")
-        fig2, ax2 = plt.subplots()
-        ax2.hist(df["median_house_value"], bins=30)
-        ax2.set_xlabel("Precio")
-        ax2.set_ylabel("Frecuencia")
-        st.pyplot(fig2)
+        if "median_house_value" in df.columns:
+            st.write("Distribución de precios")
+            fig2, ax2 = plt.subplots()
+            ax2.hist(df["median_house_value"], bins=30)
+            ax2.set_xlabel("Precio")
+            ax2.set_ylabel("Frecuencia")
+            st.pyplot(fig2)
 
 else:
-    st.info("No se encontró housing.csv. Solo se muestra la predicción.")
+    st.info("No se encontró housing.csv.")
