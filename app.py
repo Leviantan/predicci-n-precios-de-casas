@@ -1,158 +1,145 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import pickle
+import requests
 
-# Intentar importar matplotlib sin romper la app
-try:
-    import matplotlib.pyplot as plt
-    MATPLOTLIB_OK = True
-except ModuleNotFoundError:
-    MATPLOTLIB_OK = False
-
-# =============================
-# CONFIGURACIÓN GENERAL
-# =============================
 st.set_page_config(
-    page_title="Predicción de Precio de Casas",
+    page_title="Predicción valor vivienda",
     page_icon="🏠",
-    layout="wide"
+    layout="centered"
 )
 
-st.title("🏠 Predictor de Precio Medio de Casas")
-st.write("Modifica las variables y obtén una predicción del precio estimado.")
+st.title("Predicción del valor medio de vivienda")
+st.write("Modifica las variables de entrada y consulta el modelo desplegado en DataRobot.")
 
-# =============================
-# CARGAR MODELO
-# =============================
-@st.cache_resource
-def cargar_modelo():
-    with open("modelo_casas.pkl", "rb") as f:
-        modelo = pickle.load(f)
-    return modelo
+# =========================
+# SECRETS DATAROBOT
+# =========================
 
-modelo = cargar_modelo()
+DATAROBOT_API_KEY = st.secrets["DATAROBOT_API_KEY"]
+DATAROBOT_DEPLOYMENT_ID = st.secrets["DATAROBOT_DEPLOYMENT_ID"]
+DATAROBOT_HOST = st.secrets["DATAROBOT_HOST"]
 
-# =============================
-# CARGAR DATASET
-# =============================
-@st.cache_data
-def cargar_data():
-    try:
-        df = pd.read_csv("housing.csv")
-        return df
-    except:
-        return None
-
-df = cargar_data()
-
-# =============================
-# SIDEBAR
-# =============================
-st.sidebar.header("Variables de Entrada")
-
-longitud = st.sidebar.slider("Longitud", -125.0, -113.0, -122.0)
-latitud = st.sidebar.slider("Latitud", 32.0, 42.0, 37.0)
-
-edad_mediana_vivienda = st.sidebar.slider(
-    "Edad mediana vivienda", 1, 52, 25
+PREDICTION_URL = (
+    f"{DATAROBOT_HOST}/predApi/v1.0/deployments/"
+    f"{DATAROBOT_DEPLOYMENT_ID}/predictions"
 )
 
-total_habitaciones = st.sidebar.number_input(
-    "Total habitaciones", min_value=1, value=2000
+HEADERS = {
+    "Authorization": f"Bearer {DATAROBOT_API_KEY}",
+    "Content-Type": "text/plain; charset=UTF-8"
+}
+
+# =========================
+# FORMULARIO
+# =========================
+
+st.subheader("Variables de entrada")
+
+longitud = st.number_input("Longitud", value=-122.23, step=0.01)
+latitud = st.number_input("Latitud", value=37.88, step=0.01)
+
+edad_mediana_vivienda = st.slider(
+    "Edad mediana de la vivienda",
+    min_value=1,
+    max_value=60,
+    value=30
 )
 
-total_dormitorios = st.sidebar.number_input(
-    "Total dormitorios", min_value=1, value=400
+total_habitaciones = st.number_input(
+    "Total de habitaciones",
+    min_value=1,
+    value=880
 )
 
-poblacion = st.sidebar.number_input(
-    "Población", min_value=1, value=1000
+total_dormitorios = st.number_input(
+    "Total de dormitorios",
+    min_value=1,
+    value=129
 )
 
-hogares = st.sidebar.number_input(
-    "Hogares", min_value=1, value=350
+poblacion = st.number_input(
+    "Población",
+    min_value=1,
+    value=322
 )
 
-ingreso_mediano = st.sidebar.slider(
-    "Ingreso mediano", 0.0, 15.0, 4.0
+hogares = st.number_input(
+    "Hogares",
+    min_value=1,
+    value=126
 )
 
-proximidad_oceano = st.sidebar.selectbox(
+ingreso_mediano = st.number_input(
+    "Ingreso mediano",
+    min_value=0.0,
+    value=8.3252,
+    step=0.01
+)
+
+proximidad_oceano = st.selectbox(
     "Proximidad al océano",
-    ["<1H OCEAN", "INLAND", "NEAR OCEAN", "NEAR BAY", "ISLAND"]
+    [
+        "NEAR BAY",
+        "<1H OCEAN",
+        "INLAND",
+        "NEAR OCEAN",
+        "ISLAND"
+    ]
 )
 
-# =============================
-# INPUT DATA
-# =============================
-input_data = pd.DataFrame({
-    "longitud": [longitud],
-    "latitud": [latitud],
-    "edad_mediana_vivienda": [edad_mediana_vivienda],
-    "total_habitaciones": [total_habitaciones],
-    "total_dormitorios": [total_dormitorios],
-    "poblacion": [poblacion],
-    "hogares": [hogares],
-    "ingreso_mediano": [ingreso_mediano],
-    "proximidad_oceano": [proximidad_oceano]
-})
+# =========================
+# DATOS PARA EL MODELO
+# =========================
 
-# =============================
+datos = pd.DataFrame([{
+    "longitud": longitud,
+    "latitud": latitud,
+    "edad_mediana_vivienda": edad_mediana_vivienda,
+    "total_habitaciones": total_habitaciones,
+    "total_dormitorios": total_dormitorios,
+    "poblacion": poblacion,
+    "hogares": hogares,
+    "ingreso_mediano": ingreso_mediano,
+    "proximidad_oceano": proximidad_oceano
+}])
+
+st.subheader("Datos enviados al modelo")
+st.dataframe(datos, use_container_width=True)
+
+csv_data = datos.to_csv(index=False)
+
+# =========================
 # PREDICCIÓN
-# =============================
-col1, col2 = st.columns(2)
+# =========================
 
-with col1:
-    st.subheader("Valores Seleccionados")
-    st.dataframe(input_data)
+if st.button("Predecir valor de vivienda"):
+    try:
+        response = requests.post(
+            PREDICTION_URL,
+            headers=HEADERS,
+            data=csv_data.encode("utf-8")
+        )
 
-with col2:
-    st.subheader("Predicción")
+        if response.status_code == 200:
+            resultado = response.json()
 
-    if st.button("Predecir Precio"):
-        try:
-            prediccion = modelo.predict(input_data)[0]
+            st.success("Predicción realizada correctamente")
 
-            st.success(f"Precio estimado: ${prediccion:,.2f}")
-            st.metric("Valor estimado", f"${prediccion:,.0f}")
+            prediccion = resultado["data"][0]["prediction"]
 
-        except Exception as e:
-            st.error(f"Error al predecir: {e}")
-
-# =============================
-# GRÁFICAS
-# =============================
-st.markdown("---")
-st.subheader("Visualización")
-
-if not MATPLOTLIB_OK:
-    st.warning("Matplotlib no está instalado. Instala la libría para ver gráficas.")
-
-elif df is not None:
-    col3, col4 = st.columns(2)
-
-    with col3:
-        if "median_income" in df.columns and "median_house_value" in df.columns:
-            st.write("Ingreso vs Precio")
-            fig, ax = plt.subplots()
-            ax.scatter(
-                df["median_income"],
-                df["median_house_value"],
-                alpha=0.3
+            st.metric(
+                label="Valor medio estimado de la vivienda",
+                value=f"${prediccion:,.2f}"
             )
-            ax.set_xlabel("Ingreso")
-            ax.set_ylabel("Precio")
-            st.pyplot(fig)
 
-    with col4:
-        if "median_house_value" in df.columns:
-            st.write("Distribución de precios")
-            fig2, ax2 = plt.subplots()
-            ax2.hist(df["median_house_value"], bins=30)
-            ax2.set_xlabel("Precio")
-            ax2.set_ylabel("Frecuencia")
-            st.pyplot(fig2)
+            with st.expander("Ver respuesta completa de DataRobot"):
+                st.json(resultado)
 
-else:
-    st.info("No se encontró housing.csv.")
+        else:
+            st.error("Error al consultar DataRobot")
+            st.write("Código:", response.status_code)
+            st.write(response.text)
+
+    except Exception as e:
+        st.error("Error ejecutando la predicción")
+        st.write(e)
