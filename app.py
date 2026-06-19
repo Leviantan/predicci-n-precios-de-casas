@@ -15,8 +15,8 @@ st.write("Modifica las variables de entrada y consulta el modelo desplegado en D
 # SECRETS DATAROBOT
 # =========================
 
-DATAROBOT_API_KEY = st.secrets["NmEzNGE1MWUyOGU0YTVhZjRkZWQ4MDk0OmVyUko0aGpod0QwVU5nTUdTcVEyUE0wWDU4Si9vUWdYWVU5RlVVZDgxeWs9"]
-DATAROBOT_DEPLOYMENT_ID = st.secrets["6a349cd6c1cd152a7d37020d"]
+DATAROBOT_API_KEY = st.secrets["DATAROBOT_API_KEY"]
+DATAROBOT_DEPLOYMENT_ID = st.secrets["DATAROBOT_DEPLOYMENT_ID"]
 DATAROBOT_HOST = st.secrets["DATAROBOT_HOST"]
 
 PREDICTION_URL = (
