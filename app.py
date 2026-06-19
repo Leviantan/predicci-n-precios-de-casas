@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
-import matplotlib.pyplot as plt
 
 # =============================
 # CONFIGURACIÓN GENERAL
@@ -26,19 +25,6 @@ def cargar_modelo():
     return modelo
 
 modelo = cargar_modelo()
-
-# =============================
-# CARGAR DATASET (para gráficas)
-# =============================
-@st.cache_data
-def cargar_data():
-    try:
-        df = pd.read_csv("housing.csv")
-        return df
-    except:
-        return None
-
-df = cargar_data()
 
 # =============================
 # SIDEBAR - INPUTS
@@ -80,7 +66,7 @@ proximidad_oceano = st.sidebar.selectbox(
 # =============================
 # PREPARAR INPUT
 # =============================
-input_data = pd.DataFrame({
+input_data = pd.DataFrame([{
     "longitud": longitud,
     "latitud": latitud,
     "edad_mediana_vivienda": edad_mediana_vivienda,
@@ -90,7 +76,7 @@ input_data = pd.DataFrame({
     "hogares": hogares,
     "ingreso_mediano": ingreso_mediano,
     "proximidad_oceano": proximidad_oceano
-})
+}])
 
 # =============================
 # PREDICCIÓN
@@ -105,44 +91,74 @@ with col2:
     st.subheader("Predicción")
 
     if st.button("Predecir Precio"):
-        prediccion = modelo.predict(input_data)[0]
+        try:
+            prediccion = modelo.predict(input_data)[0]
 
-        st.success(f"Precio estimado: ${prediccion:,.2f}")
+            st.success(f"Precio estimado: ${prediccion:,.2f}")
 
-        st.metric(
-            label="Valor estimado",
-            value=f"${prediccion:,.0f}"
-        )
+            st.metric(
+                label="Valor estimado",
+                value=f"${prediccion:,.0f}"
+            )
+
+        except Exception as e:
+            st.error(f"Error en predicción: {e}")
 
 # =============================
 # GRÁFICAS
 # =============================
 st.markdown("---")
-st.subheader("Visualización de Variables")
+st.subheader("📊 Visualización de Variables")
 
-if df is not None:
+col3, col4 = st.columns(2)
 
-    col3, col4 = st.columns(2)
+with col3:
+    st.write("Habitaciones vs Dormitorios")
 
-    with col3:
-        st.write("Relación ingreso vs precio")
-        fig, ax = plt.subplots()
-        ax.scatter(
-            df["median_income"],
-            df["median_house_value"],
-            alpha=0.3
-        )
-        ax.set_xlabel("Ingreso Mediano")
-        ax.set_ylabel("Precio Casa")
-        st.pyplot(fig)
+    df_hab = pd.DataFrame(
+        {
+            "Cantidad": [
+                total_habitaciones,
+                total_dormitorios
+            ]
+        },
+        index=["Habitaciones", "Dormitorios"]
+    )
 
-    with col4:
-        st.write("Distribución del Precio")
-        fig2, ax2 = plt.subplots()
-        ax2.hist(df["median_house_value"], bins=30)
-        ax2.set_xlabel("Precio")
-        ax2.set_ylabel("Frecuencia")
-        st.pyplot(fig2)
+    st.bar_chart(df_hab)
 
-else:
-    st.info("No se encontró housing.csv. Solo se muestra la predicción.")
+with col4:
+    st.write("Población vs Hogares")
+
+    df_pob = pd.DataFrame(
+        {
+            "Cantidad": [
+                poblacion,
+                hogares
+            ]
+        },
+        index=["Población", "Hogares"]
+    )
+
+    st.bar_chart(df_pob)
+
+st.write("Resumen general de variables")
+
+df_resumen = pd.DataFrame(
+    {
+        "Valor": [
+            edad_mediana_vivienda,
+            ingreso_mediano,
+            total_habitaciones / 100,
+            poblacion / 100
+        ]
+    },
+    index=[
+        "Edad vivienda",
+        "Ingreso",
+        "Habitaciones (/100)",
+        "Población (/100)"
+    ]
+)
+
+st.line_chart(df_resumen)
