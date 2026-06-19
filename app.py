@@ -1,89 +1,105 @@
-import streamlit as st
+import os
+import uuid
+import subprocess
 import pandas as pd
-import requests
+import streamlit as st
 
-# =========================
-# CONFIGURACIÓN GENERAL
-# =========================
 st.set_page_config(
-    page_title="Predicción valor vivienda",
+    page_title="Predicción precio medio de casas",
     page_icon="🏠",
-    layout="wide"
+    layout="centered"
 )
 
-st.title("🏠 Predicción del valor medio de vivienda")
-st.write("Modifica las variables y consulta el modelo desplegado en DataRobot.")
-
-# =========================
-# SECRETS DATAROBOT
-# =========================
-DATAROBOT_API_KEY = st.secrets["DATAROBOT_API_KEY"]
-DATAROBOT_DEPLOYMENT_ID = st.secrets["DATAROBOT_DEPLOYMENT_ID"]
-DATAROBOT_HOST = st.secrets["DATAROBOT_HOST"]
-
-PREDICTION_URL = (
-    f"{DATAROBOT_HOST}/predApi/v1.0/deployments/"
-    f"{DATAROBOT_DEPLOYMENT_ID}/predictions"
+st.title("Predicción del precio medio de casas")
+st.write(
+    "Aplicación conectada a un modelo desplegado en DataRobot para estimar "
+    "el valor mediano de una vivienda."
 )
 
-HEADERS = {
-    "Authorization": f"Bearer {DATAROBOT_API_KEY}",
-    "Content-Type": "text/plain; charset=UTF-8"
-}
+API_KEY = st.secrets["DATAROBOT_API_KEY"]
+DEPLOYMENT_ID = st.secrets["DATAROBOT_DEPLOYMENT_ID"]
+HOST = st.secrets["DATAROBOT_HOST"]
 
-# =========================
-# FORMULARIO
-# =========================
+PREDICT_SCRIPT = "predict.py"
+
 st.subheader("Variables de entrada")
 
-longitud = st.number_input("Longitud", value=-122.23, step=0.01)
-latitud = st.number_input("Latitud", value=37.88, step=0.01)
+col1, col2 = st.columns(2)
 
-edad_mediana_vivienda = st.slider(
-    "Edad mediana de la vivienda",
-    1, 60, 30
-)
+with col1:
+    longitud = st.number_input(
+        "Longitud",
+        value=-122.23,
+        step=0.01
+    )
 
-total_habitaciones = st.number_input(
-    "Total habitaciones",
-    min_value=1,
-    value=880
-)
+    latitud = st.number_input(
+        "Latitud",
+        value=37.88,
+        step=0.01
+    )
 
-total_dormitorios = st.number_input(
-    "Total dormitorios",
-    min_value=1,
-    value=129
-)
+    edad_mediana_vivienda = st.number_input(
+        "Edad mediana de la vivienda",
+        min_value=1,
+        max_value=60,
+        value=30
+    )
 
-poblacion = st.number_input(
-    "Población",
-    min_value=1,
-    value=322
-)
+    total_habitaciones = st.number_input(
+        "Total de habitaciones",
+        min_value=1,
+        value=880
+    )
 
-hogares = st.number_input(
-    "Hogares",
-    min_value=1,
-    value=126
-)
+    total_dormitorios = st.number_input(
+        "Total de dormitorios",
+        min_value=1,
+        value=129
+    )
 
-ingreso_mediano = st.number_input(
-    "Ingreso mediano",
-    min_value=0.0,
-    value=8.3252,
-    step=0.01
-)
+with col2:
+    poblacion = st.number_input(
+        "Población",
+        min_value=1,
+        value=322
+    )
 
-proximidad_oceano = st.selectbox(
-    "Proximidad al océano",
-    ["NEAR BAY", "<1H OCEAN", "INLAND", "NEAR OCEAN", "ISLAND"]
-)
+    hogares = st.number_input(
+        "Hogares",
+        min_value=1,
+        value=126
+    )
 
-# =========================
-# DATOS
-# =========================
-datos = pd.DataFrame([{
+    ingreso_mediano = st.number_input(
+        "Ingreso mediano",
+        min_value=0.0,
+        value=8.3252,
+        step=0.01
+    )
+
+    proximidad_oceano = st.selectbox(
+        "Proximidad al océano",
+        options=[
+            "<1H OCEAN",
+            "INLAND",
+            "ISLAND",
+            "NEAR BAY",
+            "NEAR OCEAN"
+        ]
+    )
+
+datos_validos = True
+
+if total_dormitorios > total_habitaciones:
+    st.error("El total de dormitorios no debería ser mayor que el total de habitaciones.")
+    datos_validos = False
+
+if hogares > poblacion:
+    st.error("El número de hogares no debería ser mayor que la población.")
+    datos_validos = False
+
+input_data = pd.DataFrame([{
     "longitud": longitud,
     "latitud": latitud,
     "edad_mediana_vivienda": edad_mediana_vivienda,
@@ -96,77 +112,68 @@ datos = pd.DataFrame([{
 }])
 
 st.subheader("Datos enviados al modelo")
-st.dataframe(datos)
+st.dataframe(input_data, use_container_width=True)
 
-csv_data = datos.to_csv(index=False)
+if st.button("Predecir precio medio", disabled=not datos_validos):
 
-# =========================
-# GRÁFICAS
-# =========================
-st.subheader("📊 Visualización")
+    unique_id = str(uuid.uuid4())
+    input_file = f"input_{unique_id}.csv"
+    output_file = f"output_{unique_id}.csv"
 
-col1, col2 = st.columns(2)
+    input_data.to_csv(input_file, index=False)
 
-with col1:
-    df_hab = pd.DataFrame(
-        {"Cantidad": [total_habitaciones, total_dormitorios]},
-        index=["Habitaciones", "Dormitorios"]
-    )
-    st.bar_chart(df_hab)
-
-with col2:
-    df_pob = pd.DataFrame(
-        {"Cantidad": [poblacion, hogares]},
-        index=["Población", "Hogares"]
-    )
-    st.bar_chart(df_pob)
-
-df_resumen = pd.DataFrame(
-    {
-        "Valor": [
-            edad_mediana_vivienda,
-            ingreso_mediano,
-            total_habitaciones / 100,
-            poblacion / 100
-        ]
-    },
-    index=[
-        "Edad",
-        "Ingreso",
-        "Habitaciones/100",
-        "Población/100"
+    command = [
+        "python3",
+        PREDICT_SCRIPT,
+        input_file,
+        output_file,
+        DEPLOYMENT_ID,
+        f"--api_key={API_KEY}",
+        f"--host={HOST}"
     ]
-)
 
-st.line_chart(df_resumen)
-
-# =========================
-# PREDICCIÓN
-# =========================
-if st.button("Predecir valor de vivienda"):
     try:
-        response = requests.post(
-            PREDICTION_URL,
-            headers=HEADERS,
-            data=csv_data.encode("utf-8")
-        )
-
-        if response.status_code == 200:
-            resultado = response.json()
-            prediccion = resultado["data"][0]["prediction"]
-
-            st.success("Predicción realizada correctamente")
-            st.metric(
-                "Valor medio estimado",
-                f"${prediccion:,.2f}"
+        with st.spinner("Consultando el modelo desplegado en DataRobot..."):
+            subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=True
             )
 
-            with st.expander("Respuesta completa"):
-                st.json(resultado)
+        predictions = pd.read_csv(output_file)
 
+        st.subheader("Resultado completo del modelo")
+        st.dataframe(predictions, use_container_width=True)
+
+        columnas_prediccion = [
+            col for col in predictions.columns
+            if "PREDICTION" in col.upper()
+        ]
+
+        if columnas_prediccion:
+            valor_predicho = predictions.loc[0, columnas_prediccion[0]]
+
+            st.metric(
+                "Precio medio estimado de la vivienda",
+                f"${float(valor_predicho):,.2f}"
+            )
         else:
-            st.error(f"Error API: {response.status_code}")
-            st.write(response.text)
+            st.warning("No se encontró automáticamente la columna de predicción.")
+            st.write("Columnas disponibles:")
+            st.write(predictions.columns.tolist())
+
+    except subprocess.CalledProcessError as e:
+        st.error("Error ejecutando predict.py")
+        st.code(e.stderr)
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error("Error inesperado")
+        st.code(str(e))
+
+    finally:
+        if os.path.exists(input_file):
+            os.remove(input_file)
+
+        if os.path.exists(output_file):
+            os.remove(output_file)
