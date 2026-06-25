@@ -1,179 +1,232 @@
-import os
-import uuid
-import subprocess
-import pandas as pd
 import streamlit as st
+import requests
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
 
+# ============================================================
+# CONFIG
+# ============================================================
 st.set_page_config(
-    page_title="Predicción precio medio de casas",
-    page_icon="🏠",
-    layout="centered"
-)
-
-st.title("Predicción del precio medio de casas")
-st.write(
-    "Aplicación conectada a un modelo desplegado en DataRobot para estimar "
-    "el valor mediano de una vivienda."
+    page_title="Predicción de Calidad del Agua",
+    layout="wide",
 )
 
 API_KEY = st.secrets["DATAROBOT_API_KEY"]
 DEPLOYMENT_ID = st.secrets["DATAROBOT_DEPLOYMENT_ID"]
 HOST = st.secrets["DATAROBOT_HOST"]
 
-PREDICT_SCRIPT = "predict.py"
+# ============================================================
+# CSS
+# ============================================================
+st.markdown("""
+<style>
+.stApp {
+    background: #f4f9ff;
+}
 
-st.subheader("Variables de entrada")
+.main-title {
+    font-size: 42px;
+    font-weight: 700;
+    color: #0b3d91;
+}
 
-col1, col2 = st.columns(2)
+.subtitle {
+    font-size: 18px;
+    color: #4f6b95;
+}
 
-with col1:
-    longitud = st.number_input(
-        "Longitud",
-        value=-122.23,
-        step=0.01
-    )
+.card {
+    background: white;
+    padding: 25px;
+    border-radius: 18px;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.06);
+    margin-bottom: 20px;
+}
 
-    latitud = st.number_input(
-        "Latitud",
-        value=37.88,
-        step=0.01
-    )
+.stButton > button {
+    width: 100%;
+    background: linear-gradient(90deg,#1565c0,#42a5f5);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    height: 52px;
+    font-size: 18px;
+    font-weight: 600;
+}
 
-    edad_mediana_vivienda = st.number_input(
-        "Edad mediana de la vivienda",
-        min_value=1,
-        max_value=60,
-        value=30
-    )
+.metric-box {
+    background: white;
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+}
+</style>
+""", unsafe_allow_html=True)
 
-    total_habitaciones = st.number_input(
-        "Total de habitaciones",
-        min_value=1,
-        value=880
-    )
+# ============================================================
+# VARIABLES
+# ============================================================
+variables = {
+    "aluminium": "Aluminio",
+    "ammonia": "Amonio",
+    "arsenic": "Arsénico",
+    "barium": "Bario",
+    "cadmium": "Cadmio",
+    "chloramine": "Cloraminas",
+    "chromium": "Cromo",
+    "copper": "Cobre",
+    "flouride": "Fluoruro",
+    "bacteria": "Bacteria",
+    "viruses": "Virus",
+    "lead": "Plomo",
+    "nitrates": "Nitratos",
+    "nitrites": "Nitritos",
+    "mercury": "Mercurio",
+    "perchlorate": "Perclorato",
+    "radium": "Radio",
+    "selenium": "Selenio",
+    "silver": "Plata",
+    "uranium": "Uranio"
+}
 
-    total_dormitorios = st.number_input(
-        "Total de dormitorios",
-        min_value=1,
-        value=129
-    )
+# ============================================================
+# API
+# ============================================================
+def predict_datarobot(payload):
+    url = f"{HOST}/predApi/v1.0/deployments/{DEPLOYMENT_ID}/predictions"
 
-with col2:
-    poblacion = st.number_input(
-        "Población",
-        min_value=1,
-        value=322
-    )
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-    hogares = st.number_input(
-        "Hogares",
-        min_value=1,
-        value=126
-    )
+    response = requests.post(url, json=[payload], headers=headers)
 
-    ingreso_mediano = st.number_input(
-        "Ingreso mediano",
-        min_value=0.0,
-        value=8.3252,
-        step=0.01
-    )
+    if response.status_code != 200:
+        return None, response.text
 
-    proximidad_oceano = st.selectbox(
-        "Proximidad al océano",
-        options=[
-            "<1H OCEAN",
-            "INLAND",
-            "ISLAND",
-            "NEAR BAY",
-            "NEAR OCEAN"
-        ]
-    )
+    return response.json(), None
 
-datos_validos = True
 
-if total_dormitorios > total_habitaciones:
-    st.error("El total de dormitorios no debería ser mayor que el total de habitaciones.")
-    datos_validos = False
+def parse_prediction(response_json):
+    """
+    Ajustar si DataRobot devuelve otra estructura.
+    """
+    row = response_json["data"][0]
 
-if hogares > poblacion:
-    st.error("El número de hogares no debería ser mayor que la población.")
-    datos_validos = False
+    prediction = row.get("prediction", None)
 
-input_data = pd.DataFrame([{
-    "longitud": longitud,
-    "latitud": latitud,
-    "edad_mediana_vivienda": edad_mediana_vivienda,
-    "total_habitaciones": total_habitaciones,
-    "total_dormitorios": total_dormitorios,
-    "poblacion": poblacion,
-    "hogares": hogares,
-    "ingreso_mediano": ingreso_mediano,
-    "proximidad_oceano": proximidad_oceano
-}])
+    positive_prob = 0.0
+    if "predictionValues" in row:
+        for pred in row["predictionValues"]:
+            if str(pred["label"]) == "1":
+                positive_prob = pred["value"]
 
-st.subheader("Datos enviados al modelo")
-st.dataframe(input_data, use_container_width=True)
+    return prediction, positive_prob
 
-if st.button("Predecir precio medio", disabled=not datos_validos):
 
-    unique_id = str(uuid.uuid4())
-    input_file = f"input_{unique_id}.csv"
-    output_file = f"output_{unique_id}.csv"
+# ============================================================
+# HEADER
+# ============================================================
+st.markdown('<div class="main-title">Predicción de Calidad del Agua</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="subtitle">Modelo de inteligencia artificial conectado a DataRobot para evaluar si el agua es segura para consumo humano.</div>',
+    unsafe_allow_html=True
+)
 
-    input_data.to_csv(input_file, index=False)
+st.markdown("<br>", unsafe_allow_html=True)
 
-    command = [
-        "python3",
-        PREDICT_SCRIPT,
-        input_file,
-        output_file,
-        DEPLOYMENT_ID,
-        f"--api_key={API_KEY}",
-        f"--host={HOST}"
-    ]
+# ============================================================
+# LAYOUT
+# ============================================================
+left, right = st.columns([1, 1.4])
 
-    try:
-        with st.spinner("Consultando el modelo desplegado en DataRobot..."):
-            subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+# ============================================================
+# INPUTS
+# ============================================================
+with left:
+    st.markdown("### Variables del agua")
 
-        predictions = pd.read_csv(output_file)
+    user_data = {}
 
-        st.subheader("Resultado completo del modelo")
-        st.dataframe(predictions, use_container_width=True)
+    for key, label in variables.items():
+        user_data[key] = st.number_input(
+            label,
+            min_value=0.0,
+            value=0.0,
+            step=0.01,
+            format="%.6f"
+        )
 
-        columnas_prediccion = [
-            col for col in predictions.columns
-            if "PREDICTION" in col.upper()
-        ]
+    predict = st.button("Realizar Predicción")
 
-        if columnas_prediccion:
-            valor_predicho = predictions.loc[0, columnas_prediccion[0]]
+# ============================================================
+# OUTPUT
+# ============================================================
+with right:
+    st.markdown("### Resultado")
 
-            st.metric(
-                "Precio medio estimado de la vivienda",
-                f"${float(valor_predicho):,.2f}"
-            )
+    if predict:
+        with st.spinner("Consultando modelo..."):
+            result, error = predict_datarobot(user_data)
+
+        if error:
+            st.error(error)
         else:
-            st.warning("No se encontró automáticamente la columna de predicción.")
-            st.write("Columnas disponibles:")
-            st.write(predictions.columns.tolist())
+            try:
+                prediction, positive_prob = parse_prediction(result)
+                negative_prob = 1 - positive_prob
 
-    except subprocess.CalledProcessError as e:
-        st.error("Error ejecutando predict.py")
-        st.code(e.stderr)
+                if prediction == 1:
+                    st.success("Agua segura para consumo")
+                else:
+                    st.error("Agua NO segura para consumo")
 
-    except Exception as e:
-        st.error("Error inesperado")
-        st.code(str(e))
+                st.metric(
+                    "Probabilidad de agua segura",
+                    f"{positive_prob * 100:.2f}%"
+                )
 
-    finally:
-        if os.path.exists(input_file):
-            os.remove(input_file)
+                # Gauge
+                gauge = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=positive_prob * 100,
+                    title={'text': "Confianza del modelo"},
+                    gauge={
+                        'axis': {'range': [0, 100]}
+                    }
+                ))
+                st.plotly_chart(gauge, use_container_width=True)
 
-        if os.path.exists(output_file):
-            os.remove(output_file)
+                # Probabilidades
+                prob_df = pd.DataFrame({
+                    "Clase": ["Segura", "No Segura"],
+                    "Probabilidad": [positive_prob, negative_prob]
+                })
+
+                bar1 = px.bar(
+                    prob_df,
+                    x="Clase",
+                    y="Probabilidad",
+                    text="Probabilidad",
+                    title="Probabilidad por Clase"
+                )
+                st.plotly_chart(bar1, use_container_width=True)
+
+                # Inputs chart
+                inputs_df = pd.DataFrame({
+                    "Variable": list(user_data.keys()),
+                    "Valor": list(user_data.values())
+                })
+
+                bar2 = px.bar(
+                    inputs_df,
+                    x="Variable",
+                    y="Valor",
+                    title="Variables Ingresadas"
+                )
+                st.plotly_chart(bar2, use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Error procesando respuesta del modelo: {e}")
